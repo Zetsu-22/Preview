@@ -38,6 +38,33 @@ export function PreviewApp() {
 
   const coverApiOptions = useMemo(() => getCoverApiOptions(contentType, settings.kinopoiskApiKey), [contentType, settings.kinopoiskApiKey]);
 
+  const selectedTitleQuery = useMemo(() => {
+    if (!selectedTitle) {
+      return '';
+    }
+
+    const official = selectedTitle.officialName.trim();
+    const display = selectedTitle.displayName.trim();
+
+    if (official && official.toLowerCase() !== display.toLowerCase()) {
+      return official;
+    }
+
+    return official || display;
+  }, [selectedTitle]);
+
+  const selectedTitleCaption = useMemo(() => {
+    if (!selectedTitle) {
+      return 'Выбранное название: не выбрано';
+    }
+
+    if (selectedTitleQuery && selectedTitleQuery.toLowerCase() !== selectedTitle.displayName.trim().toLowerCase()) {
+      return `Выбранное название: ${selectedTitle.displayName} → ${selectedTitleQuery}`;
+    }
+
+    return `Выбранное название: ${selectedTitleQuery || selectedTitle.displayName}`;
+  }, [selectedTitle, selectedTitleQuery]);
+
   useEffect(() => {
     if (!coverApiOptions.some((item: { value: string }) => item.value === coverApi)) {
       setCoverApi(coverApiOptions[0]?.value ?? '');
@@ -67,7 +94,7 @@ export function PreviewApp() {
   }
 
   async function handleCoverSearch() {
-    const query = selectedTitle?.officialName || selectedTitle?.displayName || searchQuery;
+    const query = selectedTitleQuery || searchQuery.trim();
     if (!query) {
       setError('Сначала выберите точное название');
       return;
@@ -192,7 +219,11 @@ export function PreviewApp() {
                 className={`${styles.resultItem} ${selectedTitle?.id === item.id ? styles.resultItemActive : ''}`}
                 onClick={() => {
                   setSelectedTitle(item);
-                  setStatus(`Выбрано название: ${item.displayName}`);
+                  if (item.officialName && item.officialName.trim().toLowerCase() !== item.displayName.trim().toLowerCase()) {
+                    setStatus(`Выбрано название: ${item.displayName} → ${item.officialName}`);
+                  } else {
+                    setStatus(`Выбрано название: ${item.displayName}`);
+                  }
                 }}
               >
                 <strong>{item.displayName}</strong>
@@ -237,6 +268,8 @@ export function PreviewApp() {
               {coverLoading ? 'Поиск...' : 'Найти обложку'}
             </button>
           </div>
+
+          <div className={styles.status}>{selectedTitleCaption}</div>
 
           <div className={styles.status}>{status}</div>
           {error && <div className={styles.error}>{error}</div>}

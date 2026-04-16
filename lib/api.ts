@@ -76,6 +76,20 @@ function createNetworkError(apiName: string, error: unknown) {
   return new Error(`${apiName}: неизвестная ошибка запроса`);
 }
 
+async function getInternalJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 async function getExternalJson(url: string, init: RequestInit | undefined, apiName: string): Promise<unknown> {
   try {
     const response = await fetch(url, {
@@ -191,6 +205,25 @@ function mapOmdbTitles(data: unknown, kind: 'movie' | 'series'): SearchTitleResu
     .filter((item) => item.displayName);
 }
 
+function mapGoogleBooksTitles(data: unknown): SearchTitleResult[] {
+  return asArray(asRecord(data).items)
+    .map((item) => {
+      const volumeInfo = asRecord(item.volumeInfo);
+      const authors = asArray(volumeInfo.authors).map((author) => safeString(author)).filter(Boolean);
+      const title = safeString(volumeInfo.title);
+      const subtitle = safeString(volumeInfo.subtitle);
+
+      return {
+        id: `google-books-${safeString(item.id) || Math.random()}`,
+        displayName: title,
+        officialName: authors.length ? `${title} ${authors.join(' ')}` : title,
+        year: safeString(volumeInfo.publishedDate).slice(0, 4),
+        kind: subtitle || 'book'
+      };
+    })
+    .filter((item) => item.displayName);
+}
+
 function getAnimeAlternativeQuery(query: string) {
   const normalized = normalizeText(query);
 
@@ -208,15 +241,9 @@ function getAnimeAlternativeQuery(query: string) {
 async function searchAnimeTitles(query: string): Promise<SearchTitleResult[]> {
   const combined: SearchTitleResult[] = [];
 
-  try {
-    const kitsuData = await getExternalJson(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(query)}&page[limit]=20`, undefined, 'Kitsu API');
-    combined.push(...mapKitsuAnimeTitles(kitsuData));
-  } catch {
-  }
-
   const alternativeQuery = getAnimeAlternativeQuery(query);
 
-  if (combined.length < 5) {
+  if (alternativeQuery !== query) {
     try {
       const jikanData = await getExternalJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(alternativeQuery)}&limit=20`, undefined, 'Jikan API');
       combined.push(...mapJikanAnimeTitles(jikanData));
@@ -230,6 +257,36 @@ async function searchAnimeTitles(query: string): Promise<SearchTitleResult[]> {
   }
 
   return normalizeTitleResults(uniqueById(combined), query).slice(0, 20);
+}
+
+async function searchKinopoiskTitles(query: string, kind: ContentType, settings: AppSettings): Promise<SearchTitleResult[]> {
+  if (!settings.kinopoiskApiKey) {
+    return [];
+  }
+
+  const kinopoiskData = await getExternalJson(`https://api.kinopoisk.dev/v1.4/movie/search?query=${encodeURIComponent(query)}&limit=20`, {
+    headers: {
+      'X-API-KEY': settings.kinopoiskApiKey
+    }
+  }, 'Kinopoisk API');
+
+  const docs = asArray(asRecord(kinopoiskData).docs);
+
+  const filtered = docs.filter((item) => {
+    const currentType = safeString(item.type);
+
+    if (kind === 'movie') {
+      return currentType !== 'tv-series';
+    }
+
+    if (kind === 'series') {
+      return currentType === 'tv-series' || currentType === 'animated-series' || currentType === 'mini-series';
+    }
+
+    return true;
+  });
+
+  return normalizeTitleResults(mapKinopoiskTitles({ docs: filtered }, kind === 'book' ? 'movie' : kind === 'series' ? 'series' : 'movie'), query).slice(0, 20);
 }
 
 async function searchMovieOrSeriesTitles(query: string, kind: 'movie' | 'series', settings: AppSettings): Promise<SearchTitleResult[]> {
@@ -257,9 +314,27 @@ async function searchMovieOrSeriesTitles(query: string, kind: 'movie' | 'series'
   return normalizeTitleResults(mapOmdbTitles(omdbData, kind), query).slice(0, 20);
 }
 
-async function searchBookTitles(query: string): Promise<SearchTitleResult[]> {
-  const data = await getExternalJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(query)}&limit=20`, undefined, 'Open Library API');
-  return normalizeTitleResults(mapOpenLibraryTitles(data), query).slice(0, 20);
+async function searchBookTitles(query: string, settings: AppSettings): Promise<SearchTitleResult[]> {
+  const combined: SearchTitleResult[] = [];
+
+  if (settings.googleBooksApiKey) {
+    try {
+      const googleBooksData = await getExternalJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&langRestrict=ru&maxResults=10&key=${encodeURIComponent(settings.googleBooksApiKey)}`, undefined, 'Google Books API');
+      combined.push(...mapGoogleBooksTitles(googleBooksData));
+    } catch {
+    }
+  }
+
+  try {
+    const openLibraryData = await getExternalJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(query)}&limit=20`, undefined, 'Open Library API');
+    combined.push(...mapOpenLibraryTitles(openLibraryData));
+  } catch (error) {
+    if (!combined.length) {
+      throw error;
+    }
+  }
+
+  return normalizeTitleResults(uniqueById(combined), query).slice(0, 20);
 }
 
 function createCoverResult(input: Omit<CoverResult, 'relevanceScore'>, query: string): CoverResult {
@@ -286,19 +361,17 @@ export async function searchTitles(query: string, contentType: ContentType, sett
     return [];
   }
 
-  if (contentType === 'anime') {
-    return searchAnimeTitles(query);
-  }
-
-  if (contentType === 'movie') {
-    return searchMovieOrSeriesTitles(query, 'movie', settings);
-  }
-
-  if (contentType === 'series') {
-    return searchMovieOrSeriesTitles(query, 'series', settings);
-  }
-
-  return searchBookTitles(query);
+  return getInternalJson<SearchTitleResult[]>('/api/search-title', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query,
+      contentType,
+      settings
+    })
+  });
 }
 
 export async function searchCovers(payload: {
@@ -307,116 +380,19 @@ export async function searchCovers(payload: {
   api: string;
   settings: AppSettings;
 }): Promise<CoverResult[]> {
-  const { query, contentType, api, settings } = payload;
+  const { query } = payload;
 
   if (!query.trim()) {
     return [];
   }
 
-  if (contentType === 'anime') {
-    if (api === 'jikan') {
-      const data = await getExternalJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`, undefined, 'Jikan API');
-      return asArray(asRecord(data).data)
-        .map((item) => createCoverResult({
-          id: `jikan-${String(item.mal_id ?? Math.random())}`,
-          previewUrl: safeString(asRecord(asRecord(item.images).jpg).large_image_url) || safeString(asRecord(asRecord(item.images).jpg).image_url) || safeString(asRecord(asRecord(item.images).webp).large_image_url),
-          itemName: safeString(item.title) || 'anime',
-          displayName: safeString(item.title) || safeString(item.title_english) || 'anime',
-          officialName: safeString(item.title_english) || safeString(item.title_japanese) || safeString(item.title) || 'anime',
-          year: item.year ? String(item.year) : '',
-          sourceApi: 'Jikan API'
-        }, query))
-        .filter((item) => item.previewUrl);
-    }
-
-    const data = await getExternalJson(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(query)}&page[limit]=20`, undefined, 'Kitsu API');
-    return asArray(asRecord(data).data)
-      .map((item) => {
-        const attributes = asRecord(item.attributes);
-        const titles = asRecord(attributes.titles);
-        const posterImage = asRecord(attributes.posterImage);
-
-        return createCoverResult({
-          id: `kitsu-${safeString(item.id)}`,
-          previewUrl: safeString(posterImage.original) || safeString(posterImage.large),
-          itemName: safeString(attributes.slug) || 'anime',
-          displayName: safeString(titles.en) || safeString(attributes.canonicalTitle) || 'anime',
-          officialName: safeString(attributes.canonicalTitle) || safeString(titles.en_jp) || safeString(titles.ja_jp) || 'anime',
-          year: safeString(attributes.startDate).slice(0, 4),
-          sourceApi: 'Kitsu API'
-        }, query);
-      })
-      .filter((item) => item.previewUrl);
-  }
-
-  if (contentType === 'book') {
-    const data = await getExternalJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(query)}&limit=20`, undefined, 'Open Library API');
-    return asArray(asRecord(data).docs)
-      .map((item) => {
-        const coverId = item.cover_i;
-        return createCoverResult({
-          id: `book-${safeString(item.key) || String(coverId)}`,
-          previewUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '',
-          itemName: safeString(item.title) || 'book',
-          displayName: safeString(item.title) || 'book',
-          officialName: safeString(item.title) || 'book',
-          year: item.first_publish_year ? String(item.first_publish_year) : '',
-          sourceApi: 'Open Library API'
-        }, query);
-      })
-      .filter((item) => item.previewUrl);
-  }
-
-  if (api === 'kinopoisk') {
-    if (!settings.kinopoiskApiKey) {
-      throw new Error('Для Kinopoisk API нужен ключ в настройках');
-    }
-
-    const data = await getExternalJson(`https://api.kinopoisk.dev/v1.4/movie/search?query=${encodeURIComponent(query)}&limit=20`, {
-      headers: {
-        'X-API-KEY': settings.kinopoiskApiKey
-      }
-    }, 'Kinopoisk API');
-
-    return asArray(asRecord(data).docs)
-      .filter((item) => {
-        const currentType = safeString(item.type);
-        return contentType === 'movie' ? currentType !== 'tv-series' : currentType === 'tv-series' || currentType === 'animated-series' || currentType === 'mini-series';
-      })
-      .map((item) => createCoverResult({
-        id: `kp-${String(item.id ?? Math.random())}`,
-        previewUrl: safeString(asRecord(item.poster).url) || safeString(asRecord(item.poster).previewUrl),
-        itemName: safeString(item.name) || safeString(item.alternativeName) || 'item',
-        displayName: safeString(item.name) || safeString(item.alternativeName) || 'item',
-        officialName: safeString(item.alternativeName) || safeString(item.enName) || safeString(item.name) || 'item',
-        year: item.year ? String(item.year) : '',
-        sourceApi: 'Kinopoisk API'
-      }, query))
-      .filter((item) => item.previewUrl);
-  }
-
-  if (!settings.omdbApiKey) {
-    throw new Error('Для OMDb API нужен ключ в настройках');
-  }
-
-  const data = await getExternalJson(`https://www.omdbapi.com/?apikey=${encodeURIComponent(settings.omdbApiKey)}&s=${encodeURIComponent(query)}&type=${contentType === 'series' ? 'series' : 'movie'}`, undefined, 'OMDb API');
-  const record = asRecord(data);
-
-  if (safeString(record.Response) === 'False') {
-    throw new Error(safeString(record.Error) || 'Ничего не найдено');
-  }
-
-  return asArray(record.Search)
-    .map((item) => createCoverResult({
-      id: `omdb-${safeString(item.imdbID)}`,
-      previewUrl: safeString(item.Poster) === 'N/A' ? '' : safeString(item.Poster),
-      itemName: safeString(item.Title) || 'item',
-      displayName: safeString(item.Title) || 'item',
-      officialName: safeString(item.Title) || 'item',
-      year: safeString(item.Year),
-      sourceApi: 'OMDb API'
-    }, query))
-    .filter((item) => item.previewUrl);
+  return getInternalJson<CoverResult[]>('/api/search-cover', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function downloadCover(payload: {

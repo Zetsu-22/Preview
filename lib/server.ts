@@ -1,9 +1,84 @@
 import type { ContentType, CoverResult, SearchTitleResult } from './types';
 
+function maskSecrets(value: string) {
+  if (!value) {
+    return value;
+  }
+
+  if (value.length <= 8) {
+    return '***';
+  }
+
+  return `${value.slice(0, 4)}***${value.slice(-2)}`;
+}
+
+function sanitizeUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    for (const key of ['apikey', 'apiKey', 'key']) {
+      const current = parsed.searchParams.get(key);
+      if (current) {
+        parsed.searchParams.set(key, maskSecrets(current));
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function sanitizeHeaders(headers?: HeadersInit) {
+  if (!headers) {
+    return {};
+  }
+
+  const source = new Headers(headers);
+  const result: Record<string, string> = {};
+
+  source.forEach((value, key) => {
+    result[key] = key.toLowerCase().includes('key') || key.toLowerCase().includes('authorization')
+      ? maskSecrets(value)
+      : value;
+  });
+
+  return result;
+}
+
+async function readResponsePreview(response: Response) {
+  const clone = response.clone();
+
+  try {
+    const text = await clone.text();
+    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+  } catch {
+    return '<unavailable>';
+  }
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+  const method = init?.method ?? 'GET';
+  const safeUrl = sanitizeUrl(url);
+  const safeHeaders = sanitizeHeaders(init?.headers);
+
+  console.log('[external-api:request]', {
+    method,
+    url: safeUrl,
+    headers: safeHeaders
+  });
+
   const response = await fetch(url, {
     ...init,
     cache: 'no-store'
+  });
+
+  const preview = await readResponsePreview(response);
+
+  console.log('[external-api:response]', {
+    method,
+    url: safeUrl,
+    status: response.status,
+    ok: response.ok,
+    preview
   });
 
   if (!response.ok) {
@@ -26,6 +101,10 @@ function asArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map((item) => asRecord(item)) : [];
 }
 
+function normalizeText(value: string) {
+  return value.toLowerCase().trim();
+}
+
 function uniqueById<T extends { id: string }>(items: T[]) {
   const map = new Map<string, T>();
   for (const item of items) {
@@ -36,114 +115,63 @@ function uniqueById<T extends { id: string }>(items: T[]) {
   return [...map.values()];
 }
 
-function normalizeSearchTitles(items: SearchTitleResult[], query: string) {
-  const normalized = query.toLowerCase();
-  return items.sort((a, b) => {
-    const aExact = Number(a.displayName.toLowerCase() === normalized || a.officialName.toLowerCase() === normalized);
-    const bExact = Number(b.displayName.toLowerCase() === normalized || b.officialName.toLowerCase() === normalized);
-    return bExact - aExact;
-  });
+function splitWords(value: string) {
+  return normalizeText(value).split(/[,._\s-]+/).filter((word) => word.length > 1);
 }
 
-export async function searchKinopoiskTitles(query: string): Promise<SearchTitleResult[]> {
-  const encoded = encodeURIComponent(query.trim());
-  const candidates: SearchTitleResult[] = [];
-
-  try {
-    const data = await fetchJson(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://kinopoiskapiunofficial.tech/api/v2.1/films/search-by-keyword?keyword=${encoded}&page=1`)}`, {
-      headers: {
-        'X-API-KEY': 'demo'
-      }
-    });
-
-    const films = asArray(asRecord(data).films);
-    for (const item of films) {
-      const displayName = safeString(item.nameRu) || safeString(item.nameEn) || safeString(item.nameOriginal);
-      const officialName = safeString(item.nameOriginal) || safeString(item.nameEn) || displayName;
-      if (!displayName) {
-        continue;
-      }
-      candidates.push({
-        id: String(item.filmId ?? officialName),
-        displayName,
-        officialName,
-        year: safeString(item.year),
-        kind: safeString(item.type)
-      });
-    }
-  } catch {
+function scoreMatch(searchQuery: string, ...values: Array<string | undefined>) {
+  if (!searchQuery) {
+    return 0;
   }
 
-  try {
-    const data = await fetchJson(`https://api.jikan.moe/v4/anime?q=${encoded}&limit=10`);
-    const items = asArray(asRecord(data).data);
-    for (const item of items) {
-      const displayName = safeString(item.title) || safeString(item.title_english);
-      const officialName = safeString(item.title_english) || safeString(item.title_japanese) || displayName;
-      if (!displayName) {
-        continue;
-      }
-      candidates.push({
-        id: `anime-${String(item.mal_id ?? officialName)}`,
-        displayName,
-        officialName,
-        year: safeString(item.year),
-        kind: 'anime'
-      });
-    }
-  } catch {
-  }
-
-  try {
-    const data = await fetchJson(`https://openlibrary.org/search.json?title=${encoded}&limit=10`);
-    const docs = asArray(asRecord(data).docs);
-    for (const item of docs) {
-      const displayName = safeString(item.title);
-      const officialName = safeString(item.title);
-      if (!displayName) {
-        continue;
-      }
-      candidates.push({
-        id: `book-${safeString(item.key) || displayName}`,
-        displayName,
-        officialName,
-        year: item.first_publish_year ? String(item.first_publish_year) : '',
-        kind: 'book'
-      });
-    }
-  } catch {
-  }
-
-  return normalizeSearchTitles(uniqueById(candidates), query).slice(0, 20);
-}
-
-function scoreMatch(query: string, ...values: Array<string | undefined>) {
-  const q = query.toLowerCase().trim();
-  const words = q.split(/[\s,._-]+/).filter((word) => word.length > 1);
+  const query = normalizeText(searchQuery);
+  const words = splitWords(searchQuery);
   let score = 0;
 
-  for (const value of values) {
-    const current = safeString(value).toLowerCase();
+  for (const current of values) {
     if (!current) {
       continue;
     }
-    if (current === q) {
+
+    const value = normalizeText(current);
+    if (value === query) {
       score += 10000;
     }
-    if (current.startsWith(q)) {
+
+    if (value.startsWith(query)) {
       score += 5000;
     }
-    if (current.includes(q)) {
+
+    if (value.includes(query)) {
       score += 1200;
     }
+
     for (const word of words) {
-      if (current.includes(word)) {
+      if (value.includes(word)) {
         score += 200;
       }
     }
   }
 
+  if ((query.includes('герой') || query.includes('hero')) && values.some((value) => normalizeText(value ?? '').includes('hero') && normalizeText(value ?? '').includes('academia'))) {
+    score += 2500;
+  }
+
+  if ((query.includes('титан') || query.includes('titan')) && values.some((value) => normalizeText(value ?? '').includes('titan'))) {
+    score += 2000;
+  }
+
   return score;
+}
+
+function normalizeTitleResults(items: SearchTitleResult[], query: string) {
+  const normalized = normalizeText(query);
+
+  return [...items].sort((left, right) => {
+    const leftScore = scoreMatch(normalized, left.displayName, left.officialName);
+    const rightScore = scoreMatch(normalized, right.displayName, right.officialName);
+    return rightScore - leftScore;
+  });
 }
 
 function createCoverResult(input: Omit<CoverResult, 'relevanceScore'>, query: string): CoverResult {
@@ -151,6 +179,235 @@ function createCoverResult(input: Omit<CoverResult, 'relevanceScore'>, query: st
     ...input,
     relevanceScore: scoreMatch(query, input.displayName, input.officialName, input.itemName)
   };
+}
+
+function mapJikanAnimeTitles(data: unknown): SearchTitleResult[] {
+  return asArray(asRecord(data).data)
+    .map((item) => ({
+      id: `anime-${String(item.mal_id ?? Math.random())}`,
+      displayName: safeString(item.title) || safeString(item.title_english) || safeString(item.title_japanese),
+      officialName: safeString(item.title_english) || safeString(item.title_japanese) || safeString(item.title),
+      year: item.year ? String(item.year) : '',
+      kind: 'anime'
+    }))
+    .filter((item) => item.displayName);
+}
+
+function mapOpenLibraryTitles(data: unknown): SearchTitleResult[] {
+  return asArray(asRecord(data).docs)
+    .map((item) => ({
+      id: `book-${safeString(item.key) || Math.random()}`,
+      displayName: safeString(item.title),
+      officialName: safeString(item.title),
+      year: item.first_publish_year ? String(item.first_publish_year) : '',
+      kind: 'book'
+    }))
+    .filter((item) => item.displayName);
+}
+
+function mapGoogleBooksTitles(data: unknown): SearchTitleResult[] {
+  return asArray(asRecord(data).items)
+    .map((item) => {
+      const volumeInfo = asRecord(item.volumeInfo);
+      const authors = asArray(volumeInfo.authors).map((author) => safeString(author)).filter(Boolean);
+      const title = safeString(volumeInfo.title);
+      const subtitle = safeString(volumeInfo.subtitle);
+
+      return {
+        id: `google-books-${safeString(item.id) || Math.random()}`,
+        displayName: title,
+        officialName: authors.length ? `${title} ${authors.join(' ')}` : title,
+        year: safeString(volumeInfo.publishedDate).slice(0, 4),
+        kind: subtitle || 'book'
+      };
+    })
+    .filter((item) => item.displayName);
+}
+
+function mapKinopoiskTitles(data: unknown, kind: 'movie' | 'series'): SearchTitleResult[] {
+  return asArray(asRecord(data).docs)
+    .filter((item) => {
+      const currentType = safeString(item.type);
+      return kind === 'movie' ? currentType !== 'tv-series' : currentType === 'tv-series' || currentType === 'animated-series' || currentType === 'mini-series';
+    })
+    .map((item) => ({
+      id: `kp-${String(item.id ?? Math.random())}`,
+      displayName: safeString(item.name) || safeString(item.alternativeName) || safeString(item.enName),
+      officialName: safeString(item.alternativeName) || safeString(item.enName) || safeString(item.name),
+      year: item.year ? String(item.year) : '',
+      kind
+    }))
+    .filter((item) => item.displayName);
+}
+
+function mapOmdbTitles(data: unknown, kind: 'movie' | 'series'): SearchTitleResult[] {
+  const record = asRecord(data);
+
+  if (safeString(record.Response) === 'False') {
+    throw new Error(safeString(record.Error) || 'Ничего не найдено');
+  }
+
+  return asArray(record.Search)
+    .map((item) => ({
+      id: `omdb-${safeString(item.imdbID) || Math.random()}`,
+      displayName: safeString(item.Title),
+      officialName: safeString(item.Title),
+      year: safeString(item.Year),
+      kind
+    }))
+    .filter((item) => item.displayName);
+}
+
+function getAnimeAlternativeQuery(query: string) {
+  const normalized = normalizeText(query);
+
+  if (normalized.includes('моя геройская') || normalized.includes('геройская академия') || normalized.includes('герой')) {
+    return 'my hero academia';
+  }
+
+  if (normalized.includes('атака титанов') || normalized.includes('титаны') || normalized.includes('титан')) {
+    return 'attack on titan';
+  }
+
+  return query;
+}
+
+async function searchAnimeTitles(query: string): Promise<SearchTitleResult[]> {
+  const combined: SearchTitleResult[] = [];
+  const alternativeQuery = getAnimeAlternativeQuery(query);
+
+  if (alternativeQuery !== query) {
+    try {
+      const jikanData = await fetchJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(alternativeQuery)}&limit=20`);
+      combined.push(...mapJikanAnimeTitles(jikanData));
+    } catch {
+    }
+  }
+
+  if (!combined.length) {
+    const fallback = await fetchJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
+    combined.push(...mapJikanAnimeTitles(fallback));
+  }
+
+  return normalizeTitleResults(uniqueById(combined), query).slice(0, 20);
+}
+
+async function searchKinopoiskTitleResults(query: string, kind: ContentType, settings: { kinopoiskApiKey?: string }): Promise<SearchTitleResult[]> {
+  if (!settings.kinopoiskApiKey) {
+    return [];
+  }
+
+  const kinopoiskData = await fetchJson(`https://api.kinopoisk.dev/v1.4/movie/search?query=${encodeURIComponent(query)}&limit=20`, {
+    headers: {
+      'X-API-KEY': settings.kinopoiskApiKey
+    }
+  });
+
+  const docs = asArray(asRecord(kinopoiskData).docs);
+  const filtered = docs.filter((item) => {
+    const currentType = safeString(item.type);
+
+    if (kind === 'movie') {
+      return currentType !== 'tv-series';
+    }
+
+    if (kind === 'series') {
+      return currentType === 'tv-series' || currentType === 'animated-series' || currentType === 'mini-series';
+    }
+
+    return true;
+  });
+
+  return normalizeTitleResults(mapKinopoiskTitles({ docs: filtered }, kind === 'series' ? 'series' : 'movie'), query).slice(0, 20);
+}
+
+async function searchMovieOrSeriesTitles(query: string, kind: 'movie' | 'series', settings: { omdbApiKey?: string; kinopoiskApiKey?: string }): Promise<SearchTitleResult[]> {
+  if (settings.kinopoiskApiKey) {
+    try {
+      const kinopoiskData = await fetchJson(`https://api.kinopoisk.dev/v1.4/movie/search?query=${encodeURIComponent(query)}&limit=20`, {
+        headers: {
+          'X-API-KEY': settings.kinopoiskApiKey
+        }
+      });
+
+      const kinopoiskResults = mapKinopoiskTitles(kinopoiskData, kind);
+      if (kinopoiskResults.length) {
+        return normalizeTitleResults(kinopoiskResults, query).slice(0, 20);
+      }
+    } catch {
+    }
+  }
+
+  if (!settings.omdbApiKey) {
+    throw new Error('Для поиска нужен OMDb API key или Kinopoisk API key');
+  }
+
+  const omdbData = await fetchJson(`https://www.omdbapi.com/?apikey=${encodeURIComponent(settings.omdbApiKey)}&s=${encodeURIComponent(query)}&type=${kind}`);
+  return normalizeTitleResults(mapOmdbTitles(omdbData, kind), query).slice(0, 20);
+}
+
+async function searchBookTitles(query: string, settings: { googleBooksApiKey?: string }): Promise<SearchTitleResult[]> {
+  const combined: SearchTitleResult[] = [];
+
+  if (settings.googleBooksApiKey) {
+    try {
+      const googleBooksData = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&langRestrict=ru&maxResults=10&key=${encodeURIComponent(settings.googleBooksApiKey)}`);
+      combined.push(...mapGoogleBooksTitles(googleBooksData));
+    } catch {
+    }
+  }
+
+  try {
+    const openLibraryData = await fetchJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(query)}&limit=20`);
+    combined.push(...mapOpenLibraryTitles(openLibraryData));
+  } catch (error) {
+    if (!combined.length) {
+      throw error;
+    }
+  }
+
+  return normalizeTitleResults(uniqueById(combined), query).slice(0, 20);
+}
+
+export async function searchTitleResults(params: {
+  query: string;
+  contentType: ContentType;
+  settings: {
+    omdbApiKey?: string;
+    kinopoiskApiKey?: string;
+    googleBooksApiKey?: string;
+  };
+}): Promise<SearchTitleResult[]> {
+  const { query, contentType, settings } = params;
+
+  if (contentType === 'anime') {
+    const combined: SearchTitleResult[] = [];
+
+    try {
+      combined.push(...await searchKinopoiskTitleResults(query, 'anime', settings));
+    } catch {
+    }
+
+    try {
+      combined.push(...await searchAnimeTitles(query));
+    } catch (error) {
+      if (!combined.length) {
+        throw error;
+      }
+    }
+
+    return normalizeTitleResults(uniqueById(combined), query).slice(0, 20);
+  }
+
+  if (contentType === 'movie') {
+    return searchMovieOrSeriesTitles(query, 'movie', settings);
+  }
+
+  if (contentType === 'series') {
+    return searchMovieOrSeriesTitles(query, 'series', settings);
+  }
+
+  return searchBookTitles(query, settings);
 }
 
 export async function searchCoverResults(params: {
