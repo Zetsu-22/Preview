@@ -1,3 +1,5 @@
+import { appendFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import type { ContentType, CoverResult, SearchTitleResult } from './types';
 
 function maskSecrets(value: string) {
@@ -44,12 +46,35 @@ function sanitizeHeaders(headers?: HeadersInit) {
   return result;
 }
 
-async function readResponsePreview(response: Response) {
+const externalApiLogsDirectory = path.join(process.cwd(), 'logs');
+const externalApiLogFile = path.join(externalApiLogsDirectory, 'external-api.log');
+
+async function writeExternalApiLog(entry: string) {
+  await mkdir(externalApiLogsDirectory, { recursive: true });
+  await appendFile(externalApiLogFile, `${entry}\n`, 'utf8');
+}
+
+function formatExternalApiLog(label: string, payload: Record<string, unknown>) {
+  return `${new Date().toISOString()} ${label} ${JSON.stringify(payload, null, 2)}`;
+}
+
+async function logExternalApi(label: string, payload: Record<string, unknown>) {
+  const formatted = formatExternalApiLog(label, payload);
+
+  console.log(label, payload);
+
+  try {
+    await writeExternalApiLog(formatted);
+  } catch (error) {
+    console.error('[external-api:log-write-error]', error);
+  }
+}
+
+async function readResponseBody(response: Response) {
   const clone = response.clone();
 
   try {
-    const text = await clone.text();
-    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+    return await clone.text();
   } catch {
     return '<unavailable>';
   }
@@ -60,7 +85,7 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const safeUrl = sanitizeUrl(url);
   const safeHeaders = sanitizeHeaders(init?.headers);
 
-  console.log('[external-api:request]', {
+  await logExternalApi('[external-api:request]', {
     method,
     url: safeUrl,
     headers: safeHeaders
@@ -71,22 +96,29 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
     cache: 'no-store'
   });
 
-  const preview = await readResponsePreview(response);
+  const body = await readResponseBody(response);
 
-  console.log('[external-api:response]', {
+  await logExternalApi('[external-api:response]', {
     method,
     url: safeUrl,
     status: response.status,
     ok: response.ok,
-    preview
+    body
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new Error(body || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  if (!body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new Error('Внешний API вернул невалидный JSON');
+  }
 }
 
 function safeString(value: unknown) {

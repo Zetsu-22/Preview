@@ -12,6 +12,7 @@ const contentTypes = Object.entries(contentTypeLabels) as Array<[ContentType, st
 
 export function PreviewApp() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [titleResults, setTitleResults] = useState<SearchTitleResult[]>([]);
@@ -30,11 +31,16 @@ export function PreviewApp() {
     const stored = loadSettings();
     setSettings(stored);
     setCoverApi(getDefaultCoverApi('anime', stored));
+    setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+
     saveSettings(settings);
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   const coverApiOptions = useMemo(() => getCoverApiOptions(contentType, settings.kinopoiskApiKey), [contentType, settings.kinopoiskApiKey]);
 
@@ -219,11 +225,7 @@ export function PreviewApp() {
                 className={`${styles.resultItem} ${selectedTitle?.id === item.id ? styles.resultItemActive : ''}`}
                 onClick={() => {
                   setSelectedTitle(item);
-                  if (item.officialName && item.officialName.trim().toLowerCase() !== item.displayName.trim().toLowerCase()) {
-                    setStatus(`Выбрано название: ${item.displayName} → ${item.officialName}`);
-                  } else {
-                    setStatus(`Выбрано название: ${item.displayName}`);
-                  }
+                  setStatus('Название выбрано. Теперь можно искать обложку.');
                 }}
               >
                 <strong>{item.displayName}</strong>
