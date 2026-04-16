@@ -125,6 +125,18 @@ function safeString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
+function getBestOmdbPosterUrl(url: string) {
+  if (!url || url === 'N/A') {
+    return '';
+  }
+
+  if (!url.includes('m.media-amazon.com')) {
+    return url;
+  }
+
+  return url.replace(/\._V1_[^.]+(?=\.[a-zA-Z]+(?:\?.*)?$)/, '');
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -550,7 +562,7 @@ export async function searchCoverResults(params: {
   return items
     .map((item: Record<string, unknown>) => createCoverResult({
       id: `omdb-${safeString(item.imdbID)}`,
-      previewUrl: safeString(item.Poster) === 'N/A' ? '' : safeString(item.Poster),
+      previewUrl: getBestOmdbPosterUrl(safeString(item.Poster)),
       itemName: safeString(item.Title) || 'item',
       displayName: safeString(item.Title) || 'item',
       officialName: safeString(item.Title) || 'item',

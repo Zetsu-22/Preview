@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChangeEvent, MouseEvent } from 'react';
+import type { ChangeEvent, KeyboardEvent, MouseEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { buildFileName, downloadCover, getDefaultCoverApi, rankResults, searchCovers, searchTitles } from '@/lib/api';
 import { contentTypeLabels, defaultSettings, getCoverApiOptions } from '@/lib/constants';
@@ -24,6 +24,7 @@ export function PreviewApp() {
   const [titleLoading, setTitleLoading] = useState(false);
   const [coverLoading, setCoverLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [isFullscreenPreviewOpen, setIsFullscreenPreviewOpen] = useState(false);
   const [status, setStatus] = useState('Сначала выполните поиск названия в шаге 1');
   const [error, setError] = useState('');
 
@@ -76,6 +77,24 @@ export function PreviewApp() {
       setCoverApi(coverApiOptions[0]?.value ?? '');
     }
   }, [coverApi, coverApiOptions]);
+
+  useEffect(() => {
+    if (!isFullscreenPreviewOpen) {
+      return;
+    }
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsFullscreenPreviewOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isFullscreenPreviewOpen]);
 
   async function handleTitleSearch() {
     setTitleLoading(true);
@@ -179,6 +198,13 @@ export function PreviewApp() {
 
   function handleModalClick(event: MouseEvent<HTMLDivElement>) {
     event.stopPropagation();
+  }
+
+  function handlePreviewKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setIsFullscreenPreviewOpen(true);
+    }
   }
 
   return (
@@ -307,9 +333,16 @@ export function PreviewApp() {
           </div>
           {selectedCover ? (
             <>
-              <div className={styles.previewImageWrap}>
-                <img src={selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.previewImage} />
-              </div>
+              <button
+                type="button"
+                className={styles.previewImageButton}
+                onClick={() => setIsFullscreenPreviewOpen(true)}
+                onKeyDown={handlePreviewKeyDown}
+              >
+                <div className={styles.previewImageWrap}>
+                  <img src={selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.previewImage} />
+                </div>
+              </button>
               <div className={styles.previewMeta}>
                 <strong>{selectedCover.displayName}</strong>
                 <span>{selectedCover.officialName}</span>
@@ -327,6 +360,17 @@ export function PreviewApp() {
           )}
         </article>
       </section>
+
+      {isFullscreenPreviewOpen && selectedCover && (
+        <div className={styles.fullscreenPreviewBackdrop} onClick={() => setIsFullscreenPreviewOpen(false)}>
+          <div className={styles.fullscreenPreviewContent} onClick={handleModalClick}>
+            <button className={styles.fullscreenCloseButton} onClick={() => setIsFullscreenPreviewOpen(false)} type="button">
+              ×
+            </button>
+            <img src={selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.fullscreenPreviewImage} />
+          </div>
+        </div>
+      )}
 
       {isSettingsOpen && (
         <div className={styles.modalBackdrop} onClick={() => setIsSettingsOpen(false)}>
