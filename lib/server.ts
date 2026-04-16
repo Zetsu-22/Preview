@@ -284,6 +284,30 @@ function getJikanPosterVariants(item: Record<string, unknown>): CoverVariant[] {
   return variants;
 }
 
+function getOpenLibraryCoverVariants(coverId: string): CoverVariant[] {
+  if (!coverId) {
+    return [];
+  }
+
+  return [
+    {
+      id: 'large',
+      label: 'Large',
+      url: `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`
+    },
+    {
+      id: 'medium',
+      label: 'Medium',
+      url: `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
+    },
+    {
+      id: 'small',
+      label: 'Small',
+      url: `https://covers.openlibrary.org/b/id/${coverId}-S.jpg`
+    }
+  ];
+}
+
 function mapJikanAnimeTitles(data: unknown): SearchTitleResult[] {
   return asArray(asRecord(data).data)
     .map((item) => ({
@@ -574,9 +598,12 @@ export async function searchCoverResults(params: {
     return items
       .map((item: Record<string, unknown>) => {
         const coverId = item.cover_i;
+        const variants = getOpenLibraryCoverVariants(String(coverId ?? ''));
+
         return createCoverResult({
-          id: `book-${safeString(item.key) || String(coverId)}`,
-          previewUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '',
+          id: `book-${safeString(item.key)}`,
+          previewUrl: variants[0]?.url || '',
+          variants,
           itemName: safeString(item.title) || 'book',
           displayName: safeString(item.title) || 'book',
           officialName: safeString(item.title) || 'book',
