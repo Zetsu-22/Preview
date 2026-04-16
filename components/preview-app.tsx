@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { buildFileName, downloadCover, getDefaultCoverApi, rankResults, searchCovers, searchTitles } from '@/lib/api';
 import { contentTypeLabels, defaultSettings, getCoverApiOptions } from '@/lib/constants';
 import { loadSettings, saveSettings } from '@/lib/storage';
-import type { AppSettings, ContentType, CoverResult, SearchTitleResult } from '@/lib/types';
+import type { AppSettings, ContentType, CoverResult, CoverVariant, SearchTitleResult } from '@/lib/types';
 import styles from './preview-app.module.css';
 
 const contentTypes = Object.entries(contentTypeLabels) as Array<[ContentType, string]>;
@@ -21,6 +21,7 @@ export function PreviewApp() {
   const [coverApi, setCoverApi] = useState('kitsu');
   const [coverResults, setCoverResults] = useState<CoverResult[]>([]);
   const [selectedCover, setSelectedCover] = useState<CoverResult | null>(null);
+  const [selectedCoverVariantId, setSelectedCoverVariantId] = useState('');
   const [titleLoading, setTitleLoading] = useState(false);
   const [coverLoading, setCoverLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
@@ -72,11 +73,25 @@ export function PreviewApp() {
     return `Выбранное название: ${selectedTitleQuery || selectedTitle.displayName}`;
   }, [selectedTitle, selectedTitleQuery]);
 
+  const selectedCoverVariant = useMemo(() => {
+    if (!selectedCover?.variants?.length) {
+      return null;
+    }
+
+    return selectedCover.variants.find((variant) => variant.id === selectedCoverVariantId) ?? selectedCover.variants[0] ?? null;
+  }, [selectedCover, selectedCoverVariantId]);
+
+  const selectedCoverImageUrl = selectedCoverVariant?.url || selectedCover?.previewUrl || '';
+
   useEffect(() => {
     if (!coverApiOptions.some((item: { value: string }) => item.value === coverApi)) {
       setCoverApi(coverApiOptions[0]?.value ?? '');
     }
   }, [coverApi, coverApiOptions]);
+
+  useEffect(() => {
+    setSelectedCoverVariantId(selectedCover?.variants?.[0]?.id ?? '');
+  }, [selectedCover]);
 
   useEffect(() => {
     if (!isFullscreenPreviewOpen) {
@@ -161,7 +176,7 @@ export function PreviewApp() {
 
     try {
       const fileName = buildFileName(settings.fileNameTemplate, selectedCover);
-      const blob = await downloadCover({ imageUrl: selectedCover.previewUrl, fileName });
+      const blob = await downloadCover({ imageUrl: selectedCoverImageUrl || selectedCover.previewUrl, fileName });
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       const extension = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
@@ -205,6 +220,10 @@ export function PreviewApp() {
       event.preventDefault();
       setIsFullscreenPreviewOpen(true);
     }
+  }
+
+  function handleCoverVariantSelect(variant: CoverVariant) {
+    setSelectedCoverVariantId(variant.id);
   }
 
   return (
@@ -340,13 +359,31 @@ export function PreviewApp() {
                 onKeyDown={handlePreviewKeyDown}
               >
                 <div className={styles.previewImageWrap}>
-                  <img src={selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.previewImage} />
+                  <img src={selectedCoverImageUrl || selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.previewImage} />
                 </div>
               </button>
+              {selectedCover.variants?.length ? (
+                <div className={styles.variantSection}>
+                  <div className={styles.variantTitle}>Варианты постера</div>
+                  <div className={styles.variantList}>
+                    {selectedCover.variants.map((variant) => (
+                      <button
+                        key={variant.id}
+                        type="button"
+                        className={`${styles.variantButton} ${selectedCoverVariant?.id === variant.id ? styles.variantButtonActive : ''}`}
+                        onClick={() => handleCoverVariantSelect(variant)}
+                      >
+                        {variant.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className={styles.previewMeta}>
                 <strong>{selectedCover.displayName}</strong>
                 <span>{selectedCover.officialName}</span>
                 <span>{selectedCover.sourceApi}</span>
+                {selectedCoverVariant ? <span>Выбранный размер: {selectedCoverVariant.label}</span> : null}
               </div>
               <button className={styles.primaryButton} onClick={handleDownload} disabled={downloadLoading} type="button">
                 {downloadLoading ? 'Скачивание...' : 'Скачать выбранную обложку'}
@@ -367,7 +404,7 @@ export function PreviewApp() {
             <button className={styles.fullscreenCloseButton} onClick={() => setIsFullscreenPreviewOpen(false)} type="button">
               ×
             </button>
-            <img src={selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.fullscreenPreviewImage} />
+            <img src={selectedCoverImageUrl || selectedCover.previewUrl} alt={selectedCover.displayName} className={styles.fullscreenPreviewImage} />
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { ContentType, CoverResult, SearchTitleResult } from './types';
+import type { ContentType, CoverResult, CoverVariant, SearchTitleResult } from './types';
 
 function maskSecrets(value: string) {
   if (!value) {
@@ -223,6 +223,65 @@ function createCoverResult(input: Omit<CoverResult, 'relevanceScore'>, query: st
     ...input,
     relevanceScore: scoreMatch(query, input.displayName, input.officialName, input.itemName)
   };
+}
+
+function getKitsuPosterVariants(attributes: Record<string, unknown>): CoverVariant[] {
+  const posterImage = asRecord(attributes.posterImage);
+  const variants: CoverVariant[] = [];
+
+  for (const [key, label] of [
+    ['original', 'Original'],
+    ['large', 'Large'],
+    ['medium', 'Medium'],
+    ['small', 'Small'],
+    ['tiny', 'Tiny']
+  ] as const) {
+    const url = safeString(posterImage[key]);
+
+    if (!url || variants.some((variant) => variant.url === url)) {
+      continue;
+    }
+
+    variants.push({
+      id: key,
+      label,
+      url
+    });
+  }
+
+  return variants;
+}
+
+function getJikanPosterVariants(item: Record<string, unknown>): CoverVariant[] {
+  const images = asRecord(item.images);
+  const jpg = asRecord(images.jpg);
+  const webp = asRecord(images.webp);
+  const variants: CoverVariant[] = [];
+
+  for (const [group, labelPrefix] of [
+    [jpg, 'JPG'],
+    [webp, 'WEBP']
+  ] as const) {
+    for (const [key, label] of [
+      ['large_image_url', 'Large'],
+      ['image_url', 'Default'],
+      ['small_image_url', 'Small']
+    ] as const) {
+      const url = safeString(group[key]);
+
+      if (!url || variants.some((variant) => variant.url === url)) {
+        continue;
+      }
+
+      variants.push({
+        id: `${labelPrefix.toLowerCase()}-${key}`,
+        label: `${labelPrefix} ${label}`,
+        url
+      });
+    }
+  }
+
+  return variants;
 }
 
 function mapJikanAnimeTitles(data: unknown): SearchTitleResult[] {
@@ -471,30 +530,41 @@ export async function searchCoverResults(params: {
       const data = await fetchJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
       const items = asArray(asRecord(data).data);
       return items
-        .map((item: Record<string, unknown>) => createCoverResult({
-          id: `jikan-${String(item.mal_id ?? Math.random())}`,
-          previewUrl: safeString(asRecord(asRecord(item.images).jpg).large_image_url) || safeString(asRecord(asRecord(item.images).jpg).image_url) || safeString(asRecord(asRecord(item.images).webp).large_image_url),
-          itemName: safeString(item.title) || 'anime',
-          displayName: safeString(item.title) || safeString(item.title_english) || 'anime',
-          officialName: safeString(item.title_english) || safeString(item.title_japanese) || safeString(item.title) || 'anime',
-          year: item.year ? String(item.year) : '',
-          sourceApi: 'Jikan API'
-        }, query))
+        .map((item: Record<string, unknown>) => {
+          const variants = getJikanPosterVariants(item);
+
+          return createCoverResult({
+            id: `jikan-${String(item.mal_id ?? Math.random())}`,
+            previewUrl: variants[0]?.url || '',
+            variants,
+            itemName: safeString(item.title) || 'anime',
+            displayName: safeString(item.title) || safeString(item.title_english) || 'anime',
+            officialName: safeString(item.title_english) || safeString(item.title_japanese) || safeString(item.title) || 'anime',
+            year: item.year ? String(item.year) : '',
+            sourceApi: 'Jikan API'
+          }, query);
+        })
         .filter((item: CoverResult) => item.previewUrl);
     }
 
     const data = await fetchJson(`https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(query)}&page[limit]=20`);
     const items = asArray(asRecord(data).data);
     return items
-      .map((item: Record<string, unknown>) => createCoverResult({
-        id: `kitsu-${safeString(item.id)}`,
-        previewUrl: safeString(asRecord(asRecord(item.attributes).posterImage).original) || safeString(asRecord(asRecord(item.attributes).posterImage).large),
-        itemName: safeString(asRecord(item.attributes).slug) || 'anime',
-        displayName: safeString(asRecord(asRecord(item.attributes).titles).en) || safeString(asRecord(item.attributes).canonicalTitle) || 'anime',
-        officialName: safeString(asRecord(item.attributes).canonicalTitle) || safeString(asRecord(asRecord(item.attributes).titles).en_jp) || safeString(asRecord(asRecord(item.attributes).titles).ja_jp) || 'anime',
-        year: safeString(asRecord(item.attributes).startDate).slice(0, 4),
-        sourceApi: 'Kitsu API'
-      }, query))
+      .map((item: Record<string, unknown>) => {
+        const attributes = asRecord(item.attributes);
+        const variants = getKitsuPosterVariants(attributes);
+
+        return createCoverResult({
+          id: `kitsu-${safeString(item.id)}`,
+          previewUrl: variants[0]?.url || '',
+          variants,
+          itemName: safeString(attributes.slug) || 'anime',
+          displayName: safeString(asRecord(attributes.titles).en) || safeString(attributes.canonicalTitle) || 'anime',
+          officialName: safeString(attributes.canonicalTitle) || safeString(asRecord(attributes.titles).en_jp) || safeString(asRecord(attributes.titles).ja_jp) || 'anime',
+          year: safeString(attributes.startDate).slice(0, 4),
+          sourceApi: 'Kitsu API'
+        }, query);
+      })
       .filter((item: CoverResult) => item.previewUrl);
   }
 

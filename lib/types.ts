@@ -21,9 +21,16 @@ export type SearchTitleResult = {
   kind?: string;
 };
 
+export type CoverVariant = {
+  id: string;
+  label: string;
+  url: string;
+};
+
 export type CoverResult = {
   id: string;
   previewUrl: string;
+  variants?: CoverVariant[];
   itemName: string;
   displayName: string;
   officialName: string;

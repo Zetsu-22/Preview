@@ -270,6 +270,37 @@
   border: 1px solid var(--line);
 }
 
+.variantSection {
+  display: grid;
+  gap: 12px;
+}
+
+.variantTitle {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.variantList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.variantButton {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(160, 190, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.variantButtonActive {
+  border-color: var(--accent);
+  background: rgba(110, 168, 254, 0.16);
+  color: white;
+}
+
 .fullscreenPreviewBackdrop {
   position: fixed;
   inset: 0;
