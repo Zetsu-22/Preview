@@ -1,7 +1,7 @@
 'use client';
 
 import type { ChangeEvent, KeyboardEvent, MouseEvent } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileName, downloadCover, getDefaultCoverApi, rankResults, searchCovers, searchTitles } from '@/lib/api';
 import { contentTypeLabels, defaultSettings, getCoverApiOptions } from '@/lib/constants';
 import { loadSettings, saveSettings } from '@/lib/storage';
@@ -14,6 +14,7 @@ export function PreviewApp() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const searchInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [titleResults, setTitleResults] = useState<SearchTitleResult[]>([]);
   const [selectedTitle, setSelectedTitle] = useState<SearchTitleResult | null>(null);
@@ -43,6 +44,12 @@ export function PreviewApp() {
 
     saveSettings(settings);
   }, [settings, settingsLoaded]);
+
+  useEffect(() => {
+    if (searchInputRef.current && searchInputRef.current.value !== searchQuery) {
+      searchInputRef.current.value = searchQuery;
+    }
+  }, [searchQuery]);
 
   const coverApiOptions = useMemo(() => getCoverApiOptions(contentType, settings.kinopoiskApiKey), [contentType, settings.kinopoiskApiKey]);
 
@@ -112,6 +119,9 @@ export function PreviewApp() {
   }, [isFullscreenPreviewOpen]);
 
   async function handleTitleSearch() {
+    const currentQuery = searchInputRef.current?.value ?? searchQuery;
+
+    setSearchQuery(currentQuery);
     setTitleLoading(true);
     setError('');
     setStatus('Ищу точное название...');
@@ -120,7 +130,7 @@ export function PreviewApp() {
     setCoverResults([]);
 
     try {
-      const results = await searchTitles(searchQuery, contentType, settings);
+      const results = await searchTitles(currentQuery, contentType, settings);
       setTitleResults(results);
       setStatus(results.length ? `Найдено вариантов: ${results.length}. Выберите точное название.` : 'Ничего не найдено');
     } catch (currentError) {
@@ -207,6 +217,16 @@ export function PreviewApp() {
     return (event: ChangeEvent<HTMLInputElement>) => setter(event.target.value);
   }
 
+  function handleSearchInput(event: ChangeEvent<HTMLTextAreaElement>) {
+    setSearchQuery(event.target.value);
+  }
+
+  function focusSearchInput() {
+    window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 0);
+  }
+
   function handleSelectValueChange<T extends string>(setter: (value: T) => void) {
     return (event: ChangeEvent<HTMLSelectElement>) => setter(event.target.value as T);
   }
@@ -251,10 +271,20 @@ export function PreviewApp() {
           </div>
 
           <div className={styles.formRow}>
-            <input
-              className={styles.input}
-              value={searchQuery}
-              onChange={handleTextInputChange(setSearchQuery)}
+            <textarea
+              ref={searchInputRef}
+              className={`${styles.input} ${styles.searchTextarea}`}
+              inputMode="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              defaultValue={searchQuery}
+              onInput={handleSearchInput}
+              onFocus={focusSearchInput}
+              onClick={focusSearchInput}
+              autoFocus
+              rows={1}
               placeholder="Например: атака титанов, Fight Club, Ведьмак"
             />
             <button className={styles.primaryButton} onClick={handleTitleSearch} disabled={titleLoading} type="button">
@@ -421,23 +451,23 @@ export function PreviewApp() {
             <div className={styles.settingsGrid}>
               <label className={styles.field}>
                 <span>OMDb API key</span>
-                <input className={styles.input} value={settings.omdbApiKey} onChange={handleTextInputChange((value) => updateSettings('omdbApiKey', value))} />
+                <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.omdbApiKey} onChange={handleTextInputChange((value) => updateSettings('omdbApiKey', value))} />
               </label>
               <label className={styles.field}>
                 <span>Kinopoisk API key</span>
-                <input className={styles.input} value={settings.kinopoiskApiKey} onChange={handleTextInputChange((value) => updateSettings('kinopoiskApiKey', value))} />
+                <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.kinopoiskApiKey} onChange={handleTextInputChange((value) => updateSettings('kinopoiskApiKey', value))} />
               </label>
               <label className={styles.field}>
                 <span>Google Books API key</span>
-                <input className={styles.input} value={settings.googleBooksApiKey} onChange={handleTextInputChange((value) => updateSettings('googleBooksApiKey', value))} />
+                <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.googleBooksApiKey} onChange={handleTextInputChange((value) => updateSettings('googleBooksApiKey', value))} />
               </label>
               <label className={styles.field}>
                 <span>Путь сохранения</span>
-                <input className={styles.input} value={settings.downloadPath} onChange={handleTextInputChange((value) => updateSettings('downloadPath', value))} />
+                <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.downloadPath} onChange={handleTextInputChange((value) => updateSettings('downloadPath', value))} />
               </label>
               <label className={`${styles.field} ${styles.fieldFull}`}>
                 <span>Шаблон имени файла</span>
-                <input className={styles.input} value={settings.fileNameTemplate} onChange={handleTextInputChange((value) => updateSettings('fileNameTemplate', value))} />
+                <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.fileNameTemplate} onChange={handleTextInputChange((value) => updateSettings('fileNameTemplate', value))} />
               </label>
             </div>
             <div className={styles.hint}>Поддерживаются плейсхолдеры: {'{title}'}, {'{eng_title}'}, {'{year}'}</div>

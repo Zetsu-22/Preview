@@ -124,6 +124,14 @@
   background: rgba(4, 12, 25, 0.85);
 }
 
+.searchTextarea {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  line-height: 24px;
+  resize: none;
+  overflow-y: hidden;
+}
+
 .primaryButton,
 .secondaryButton {
   min-height: 48px;
