@@ -16,6 +16,7 @@ function buildApiUrl(path: string) {
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
 }
 
+
 function normalizeText(value: string) {
   return value.toLowerCase().trim();
 }
