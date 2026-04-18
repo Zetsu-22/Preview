@@ -2,6 +2,30 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { ContentType, CoverResult, CoverVariant, SearchTitleResult } from './types';
 
+type ApiKeySettings = {
+  omdbApiKey?: string;
+  kinopoiskApiKey?: string;
+  googleBooksApiKey?: string;
+};
+
+function pickApiKey(userValue: string | undefined, envValue: string | undefined) {
+  const normalizedUserValue = userValue?.trim();
+  if (normalizedUserValue) {
+    return normalizedUserValue;
+  }
+
+  const normalizedEnvValue = envValue?.trim();
+  return normalizedEnvValue || '';
+}
+
+function resolveApiKeySettings(settings: ApiKeySettings): Required<ApiKeySettings> {
+  return {
+    omdbApiKey: pickApiKey(settings.omdbApiKey, process.env.OMDB_API_KEY),
+    kinopoiskApiKey: pickApiKey(settings.kinopoiskApiKey, process.env.KINOPOISK_API_KEY),
+    googleBooksApiKey: pickApiKey(settings.googleBooksApiKey, process.env.GOOGLE_BOOKS_API_KEY)
+  };
+}
+
 function maskSecrets(value: string) {
   if (!value) {
     return value;
@@ -499,13 +523,10 @@ async function searchBookTitles(query: string, settings: { googleBooksApiKey?: s
 export async function searchTitleResults(params: {
   query: string;
   contentType: ContentType;
-  settings: {
-    omdbApiKey?: string;
-    kinopoiskApiKey?: string;
-    googleBooksApiKey?: string;
-  };
+  settings: ApiKeySettings;
 }): Promise<SearchTitleResult[]> {
-  const { query, contentType, settings } = params;
+  const { query, contentType } = params;
+  const settings = resolveApiKeySettings(params.settings);
 
   if (contentType === 'anime') {
     const combined: SearchTitleResult[] = [];
@@ -541,13 +562,10 @@ export async function searchCoverResults(params: {
   query: string;
   contentType: ContentType;
   api: string;
-  settings: {
-    omdbApiKey?: string;
-    kinopoiskApiKey?: string;
-    googleBooksApiKey?: string;
-  };
+  settings: ApiKeySettings;
 }): Promise<CoverResult[]> {
-  const { query, contentType, api, settings } = params;
+  const { query, contentType, api } = params;
+  const settings = resolveApiKeySettings(params.settings);
 
   if (contentType === 'anime') {
     if (api === 'jikan') {
@@ -616,7 +634,7 @@ export async function searchCoverResults(params: {
 
   if (api === 'kinopoisk') {
     if (!settings.kinopoiskApiKey) {
-      throw new Error('Для Kinopoisk API нужен ключ в настройках');
+      throw new Error('Для Kinopoisk API нужен пользовательский или серверный ключ');
     }
 
     const type = contentType === 'series' ? 'tv-series' : 'movie';
@@ -645,7 +663,7 @@ export async function searchCoverResults(params: {
   }
 
   if (!settings.omdbApiKey) {
-    throw new Error('Для OMDb API нужен ключ в настройках');
+    throw new Error('Для OMDb API нужен пользовательский или серверный ключ');
   }
 
   const type = contentType === 'series' ? 'series' : 'movie';

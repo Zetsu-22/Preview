@@ -3,7 +3,7 @@
 import type { ChangeEvent, KeyboardEvent, MouseEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileName, downloadCover, getDefaultCoverApi, rankResults, searchCovers, searchTitles } from '@/lib/api';
-import { contentTypeLabels, defaultSettings, getCoverApiOptions } from '@/lib/constants';
+import { contentTypeLabels, defaultSettings, getCoverApiOptions, serverApiKeyAvailability } from '@/lib/constants';
 import { loadSettings, saveSettings } from '@/lib/storage';
 import type { AppSettings, ContentType, CoverResult, CoverVariant, SearchTitleResult } from '@/lib/types';
 import styles from './preview-app.module.css';
@@ -18,7 +18,8 @@ export function PreviewApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [titleResults, setTitleResults] = useState<SearchTitleResult[]>([]);
   const [selectedTitle, setSelectedTitle] = useState<SearchTitleResult | null>(null);
-  const [contentType, setContentType] = useState<ContentType>('anime');
+  const [titleContentType, setTitleContentType] = useState<ContentType>('anime');
+  const [coverContentType, setCoverContentType] = useState<ContentType>('anime');
   const [coverApi, setCoverApi] = useState('kitsu');
   const [coverResults, setCoverResults] = useState<CoverResult[]>([]);
   const [selectedCover, setSelectedCover] = useState<CoverResult | null>(null);
@@ -51,7 +52,7 @@ export function PreviewApp() {
     }
   }, [searchQuery]);
 
-  const coverApiOptions = useMemo(() => getCoverApiOptions(contentType, settings.kinopoiskApiKey), [contentType, settings.kinopoiskApiKey]);
+  const coverApiOptions = useMemo(() => getCoverApiOptions(coverContentType, settings.kinopoiskApiKey), [coverContentType, settings.kinopoiskApiKey]);
 
   const selectedTitleQuery = useMemo(() => {
     if (!selectedTitle) {
@@ -130,7 +131,7 @@ export function PreviewApp() {
     setCoverResults([]);
 
     try {
-      const results = await searchTitles(currentQuery, contentType, settings);
+      const results = await searchTitles(currentQuery, titleContentType, settings);
       setTitleResults(results);
       setStatus(results.length ? `Найдено вариантов: ${results.length}. Выберите точное название.` : 'Ничего не найдено');
     } catch (currentError) {
@@ -158,7 +159,7 @@ export function PreviewApp() {
     try {
       const results = await searchCovers({
         query,
-        contentType,
+        contentType: coverContentType,
         api: coverApi,
         settings
       });
@@ -270,6 +271,19 @@ export function PreviewApp() {
             </div>
           </div>
 
+          <div className={styles.filters}>
+            <label className={styles.field}>
+              <span>Тип контента</span>
+              <select className={styles.select} value={titleContentType} onChange={handleSelectValueChange<ContentType>(setTitleContentType)}>
+                {contentTypes.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           <div className={styles.formRow}>
             <textarea
               ref={searchInputRef}
@@ -300,6 +314,8 @@ export function PreviewApp() {
                 className={`${styles.resultItem} ${selectedTitle?.id === item.id ? styles.resultItemActive : ''}`}
                 onClick={() => {
                   setSelectedTitle(item);
+                  setCoverContentType(titleContentType);
+                  setCoverApi(getDefaultCoverApi(titleContentType, settings));
                   setStatus('Название выбрано. Теперь можно искать обложку.');
                 }}
               >
@@ -323,7 +339,7 @@ export function PreviewApp() {
           <div className={styles.filters}>
             <label className={styles.field}>
               <span>Тип контента</span>
-              <select className={styles.select} value={contentType} onChange={handleSelectValueChange<ContentType>(setContentType)}>
+              <select className={styles.select} value={coverContentType} onChange={handleSelectValueChange<ContentType>(setCoverContentType)}>
                 {contentTypes.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
@@ -450,15 +466,15 @@ export function PreviewApp() {
             </div>
             <div className={styles.settingsGrid}>
               <label className={styles.field}>
-                <span>OMDb API key</span>
+                <span>OMDb API key {serverApiKeyAvailability.omdb ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.omdbApiKey} onChange={handleTextInputChange((value) => updateSettings('omdbApiKey', value))} />
               </label>
               <label className={styles.field}>
-                <span>Kinopoisk API key</span>
+                <span>Kinopoisk API key {serverApiKeyAvailability.kinopoisk ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.kinopoiskApiKey} onChange={handleTextInputChange((value) => updateSettings('kinopoiskApiKey', value))} />
               </label>
               <label className={styles.field}>
-                <span>Google Books API key</span>
+                <span>Google Books API key {serverApiKeyAvailability.googleBooks ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.googleBooksApiKey} onChange={handleTextInputChange((value) => updateSettings('googleBooksApiKey', value))} />
               </label>
               <label className={styles.field}>
@@ -470,7 +486,7 @@ export function PreviewApp() {
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.fileNameTemplate} onChange={handleTextInputChange((value) => updateSettings('fileNameTemplate', value))} />
               </label>
             </div>
-            <div className={styles.hint}>Поддерживаются плейсхолдеры: {'{title}'}, {'{eng_title}'}, {'{year}'}</div>
+            <div className={styles.hint}>Если поле API key пустое, используется серверный ключ по умолчанию, если он настроен. Поддерживаются плейсхолдеры: {'{title}'}, {'{eng_title}'}, {'{year}'}</div>
             <div className={styles.modalActions}>
               <button className={styles.secondaryButton} onClick={() => setIsSettingsOpen(false)} type="button">
                 Готово
