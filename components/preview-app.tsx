@@ -3,7 +3,7 @@
 import type { ChangeEvent, KeyboardEvent, MouseEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileName, downloadCover, getDefaultCoverApi, rankResults, searchCovers, searchTitles } from '@/lib/api';
-import { contentTypeLabels, defaultSettings, getCoverApiOptions } from '@/lib/constants';
+import { contentTypeLabels, defaultSettings, getCoverApiOptions, serverApiKeyAvailability } from '@/lib/constants';
 import { loadSettings, saveSettings } from '@/lib/storage';
 import type { AppSettings, ContentType, CoverResult, CoverVariant, SearchTitleResult } from '@/lib/types';
 import styles from './preview-app.module.css';
@@ -450,15 +450,15 @@ export function PreviewApp() {
             </div>
             <div className={styles.settingsGrid}>
               <label className={styles.field}>
-                <span>OMDb API key</span>
+                <span>OMDb API key {serverApiKeyAvailability.omdb ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.omdbApiKey} onChange={handleTextInputChange((value) => updateSettings('omdbApiKey', value))} />
               </label>
               <label className={styles.field}>
-                <span>Kinopoisk API key</span>
+                <span>Kinopoisk API key {serverApiKeyAvailability.kinopoisk ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.kinopoiskApiKey} onChange={handleTextInputChange((value) => updateSettings('kinopoiskApiKey', value))} />
               </label>
               <label className={styles.field}>
-                <span>Google Books API key</span>
+                <span>Google Books API key {serverApiKeyAvailability.googleBooks ? '(переопределение)' : ''}</span>
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.googleBooksApiKey} onChange={handleTextInputChange((value) => updateSettings('googleBooksApiKey', value))} />
               </label>
               <label className={styles.field}>
@@ -470,7 +470,7 @@ export function PreviewApp() {
                 <input className={styles.input} type="text" inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} value={settings.fileNameTemplate} onChange={handleTextInputChange((value) => updateSettings('fileNameTemplate', value))} />
               </label>
             </div>
-            <div className={styles.hint}>Поддерживаются плейсхолдеры: {'{title}'}, {'{eng_title}'}, {'{year}'}</div>
+            <div className={styles.hint}>Если поле API key пустое, используется серверный ключ по умолчанию, если он настроен. Поддерживаются плейсхолдеры: {'{title}'}, {'{eng_title}'}, {'{year}'}</div>
             <div className={styles.modalActions}>
               <button className={styles.secondaryButton} onClick={() => setIsSettingsOpen(false)} type="button">
                 Готово

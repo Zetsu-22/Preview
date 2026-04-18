@@ -1,5 +1,11 @@
 import type { AppSettings, ContentType, CoverApiOption } from './types';
 
+export const serverApiKeyAvailability = {
+  omdb: process.env.NEXT_PUBLIC_HAS_OMDB_API_KEY === 'true',
+  kinopoisk: process.env.NEXT_PUBLIC_HAS_KINOPOISK_API_KEY === 'true',
+  googleBooks: process.env.NEXT_PUBLIC_HAS_GOOGLE_BOOKS_API_KEY === 'true'
+};
+
 export const contentTypeLabels: Record<ContentType, string> = {
   anime: 'Аниме',
   movie: 'Фильм',
@@ -15,7 +21,13 @@ export const defaultSettings: AppSettings = {
   fileNameTemplate: '{eng_title}_preview'
 };
 
+export function hasApiKey(value: string) {
+  return Boolean(value.trim());
+}
+
 export function getCoverApiOptions(contentType: ContentType, kinopoiskApiKey: string): CoverApiOption[] {
+  const hasKinopoiskAccess = hasApiKey(kinopoiskApiKey) || serverApiKeyAvailability.kinopoisk;
+
   switch (contentType) {
     case 'anime':
       return [
@@ -25,7 +37,7 @@ export function getCoverApiOptions(contentType: ContentType, kinopoiskApiKey: st
     case 'movie':
     case 'series':
       return [
-        ...(kinopoiskApiKey ? [{ value: 'kinopoisk', label: 'Kinopoisk API' }] : []),
+        ...(hasKinopoiskAccess ? [{ value: 'kinopoisk', label: 'Kinopoisk API' }] : []),
         { value: 'omdb', label: 'OMDb API' }
       ];
     case 'book':

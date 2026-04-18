@@ -1,3 +1,4 @@
+import { hasApiKey, serverApiKeyAvailability } from './constants';
 import type { AppSettings, ContentType, CoverResult, SearchTitleResult } from './types';
 
 function getApiBaseUrl() {
@@ -370,7 +371,7 @@ export function getDefaultCoverApi(contentType: ContentType, settings: AppSettin
     return 'openlibrary';
   }
 
-  return settings.kinopoiskApiKey ? 'kinopoisk' : 'omdb';
+  return hasApiKey(settings.kinopoiskApiKey) || serverApiKeyAvailability.kinopoisk ? 'kinopoisk' : 'omdb';
 }
 
 export async function searchTitles(query: string, contentType: ContentType, settings: AppSettings): Promise<SearchTitleResult[]> {
