@@ -1,3 +1,16 @@
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
+
+export function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -5,12 +18,18 @@ export async function POST(request: Request) {
     const fileName = typeof body?.fileName === 'string' ? body.fileName : 'preview';
 
     if (!imageUrl) {
-      return new Response('Не передан URL изображения', { status: 400 });
+      return new Response('Не передан URL изображения', {
+        status: 400,
+        headers: corsHeaders
+      });
     }
 
     const response = await fetch(imageUrl, { cache: 'no-store' });
     if (!response.ok) {
-      return new Response('Не удалось загрузить изображение', { status: 500 });
+      return new Response('Не удалось загрузить изображение', {
+        status: 500,
+        headers: corsHeaders
+      });
     }
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
@@ -20,12 +39,16 @@ export async function POST(request: Request) {
     return new Response(buffer, {
       status: 200,
       headers: {
+        ...corsHeaders,
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${fileName}.${extension}"`
       }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ошибка скачивания';
-    return new Response(message, { status: 500 });
+    return new Response(message, {
+      status: 500,
+      headers: corsHeaders
+    });
   }
 }

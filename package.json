@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
+    "dev:android": "next dev -p 3001",
     "build": "next build",
+    "build:android": "set NEXT_OUTPUT_MODE=export&& next build",
     "start": "next start -p 3001",
-    "lint": "next lint"
+    "lint": "next lint",
+    "cap:sync:android:dev": "set CAPACITOR_LIVE_RELOAD=true&& npx cap sync android",
+    "cap:sync:android:release": "npx cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",

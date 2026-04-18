@@ -1,6 +1,19 @@
 import { NextResponse } from 'next/server';
 import { searchTitleResults } from '@/lib/server';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
+
+export function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -9,7 +22,9 @@ export async function POST(request: Request) {
     const settings = typeof body?.settings === 'object' && body.settings ? body.settings : {};
 
     if (!query) {
-      return NextResponse.json([]);
+      return NextResponse.json([], {
+        headers: corsHeaders
+      });
     }
 
     const results = await searchTitleResults({
@@ -17,9 +32,14 @@ export async function POST(request: Request) {
       contentType,
       settings
     });
-    return NextResponse.json(results);
+    return NextResponse.json(results, {
+      headers: corsHeaders
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ошибка поиска названия';
-    return new NextResponse(message, { status: 500 });
+    return new NextResponse(message, {
+      status: 500,
+      headers: corsHeaders
+    });
   }
 }

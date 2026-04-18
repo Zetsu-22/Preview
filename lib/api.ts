@@ -1,5 +1,21 @@
 import type { AppSettings, ContentType, CoverResult, SearchTitleResult } from './types';
 
+function getApiBaseUrl() {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+
+  if (!baseUrl) {
+    return '';
+  }
+
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function buildApiUrl(path: string) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const baseUrl = getApiBaseUrl();
+  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+}
+
 function normalizeText(value: string) {
   return value.toLowerCase().trim();
 }
@@ -77,7 +93,7 @@ function createNetworkError(apiName: string, error: unknown) {
 }
 
 async function getInternalJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(buildApiUrl(url), {
     ...init,
     cache: 'no-store'
   });
@@ -399,7 +415,7 @@ export async function downloadCover(payload: {
   imageUrl: string;
   fileName: string;
 }) {
-  const response = await fetch('/api/download-image', {
+  const response = await fetch(buildApiUrl('/api/download-image'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
