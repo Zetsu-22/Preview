@@ -502,7 +502,7 @@ async function searchBookTitles(query: string, settings: { googleBooksApiKey?: s
 
   if (settings.googleBooksApiKey) {
     try {
-      const googleBooksData = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&langRestrict=ru&maxResults=10&key=${encodeURIComponent(settings.googleBooksApiKey)}`);
+      const googleBooksData = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10&key=${encodeURIComponent(settings.googleBooksApiKey)}`);
       combined.push(...mapGoogleBooksTitles(googleBooksData));
     } catch {
     }
