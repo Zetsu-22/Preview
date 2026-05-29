@@ -501,11 +501,14 @@ async function searchBookTitles(query: string, settings: { googleBooksApiKey?: s
   const combined: SearchTitleResult[] = [];
 
   if (settings.googleBooksApiKey) {
-    try {
-      const googleBooksData = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10&key=${encodeURIComponent(settings.googleBooksApiKey)}`);
-      combined.push(...mapGoogleBooksTitles(googleBooksData));
-    } catch {
-    }
+    const key = encodeURIComponent(settings.googleBooksApiKey);
+    const q = encodeURIComponent(query);
+    const [defaultData, enData] = await Promise.allSettled([
+      fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=10&key=${key}`),
+      fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${q}&langRestrict=en&maxResults=10&key=${key}`),
+    ]);
+    if (defaultData.status === 'fulfilled') combined.push(...mapGoogleBooksTitles(defaultData.value));
+    if (enData.status === 'fulfilled') combined.push(...mapGoogleBooksTitles(enData.value));
   }
 
   try {
